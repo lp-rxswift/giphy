@@ -1,6 +1,8 @@
 import Foundation
 import RxSwift
 
+private var internalCache = [String: Data]()
+
 public enum RxURLSessionError: Error {
   case unknown
   case invalidResponse(response: URLResponse)
@@ -31,7 +33,11 @@ extension Reactive where Base: URLSession {
   }
 
   func data(request: URLRequest) -> Observable<Data> {
-    return response(request: request).map { response, data -> Data in
+    if let url = request.url?.absoluteString,
+       let data = internalCache[url] {
+      return Observable.just(data)
+    }
+    return response(request: request).cache().map { response, data -> Data in
       guard 200 ..< 300 ~= response.statusCode else {
         throw RxURLSessionError.requestFailed(response: response,
                                               data: data)
@@ -64,5 +70,15 @@ extension Reactive where Base: URLSession {
     return data(request: request).map { data in
       return UIImage(data: data) ?? UIImage()
     }
+  }
+}
+
+extension ObservableType where Element == (HTTPURLResponse, Data) {
+  func cache() -> Observable<Element> {
+    return self.do(onNext: { response, data in
+      guard let url = response.url?.absoluteString,
+            200 ..< 300 ~= response.statusCode else { return }
+      internalCache[url] = data
+    })
   }
 }
